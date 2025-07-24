@@ -20,7 +20,7 @@ resource "aws_internet_gateway" "main" {
 
 # Public Subnets
 resource "aws_subnet" "public" {
-  count = 1
+  count = length(var.availability_zones)
 
   vpc_id                  = aws_vpc.main.id
   cidr_block              = cidrsubnet(var.vpc_cidr, 8, count.index)
@@ -35,7 +35,7 @@ resource "aws_subnet" "public" {
 
 # Private Subnets
 resource "aws_subnet" "private" {
-  count = 1
+  count = length(var.availability_zones)
 
   vpc_id            = aws_vpc.main.id
   cidr_block        = cidrsubnet(var.vpc_cidr, 8, count.index + 100)
@@ -49,7 +49,7 @@ resource "aws_subnet" "private" {
 
 # Elastic IPs for NAT Gateways
 resource "aws_eip" "nat" {
-  count = 1
+  count = length(var.availability_zones)
 
   domain = "vpc"
 
@@ -62,7 +62,7 @@ resource "aws_eip" "nat" {
 
 # NAT Gateways
 resource "aws_nat_gateway" "main" {
-  count = 1
+  count = length(var.availability_zones)
 
   allocation_id = aws_eip.nat[count.index].id
   subnet_id     = aws_subnet.public[count.index].id
@@ -98,7 +98,7 @@ resource "aws_route_table_association" "public" {
 
 # Route Tables for Private Subnets
 resource "aws_route_table" "private" {
-  count = 1
+  count = length(var.availability_zones)
 
   vpc_id = aws_vpc.main.id
 

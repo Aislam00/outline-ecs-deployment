@@ -42,7 +42,7 @@ resource "aws_elasticache_replication_group" "main" {
   
   # Engine configuration
   engine               = "redis"
-  engine_version       = "7.0"
+  engine_version = "6.2"
   
   # Security
   at_rest_encryption_enabled = true
