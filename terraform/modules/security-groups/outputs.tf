@@ -1,19 +1,19 @@
-output "alb_sg_id" {
-  description = "ALB security group ID"
+output "alb_security_group_id" {
+  description = "ID of the ALB security group"
   value       = aws_security_group.alb.id
 }
 
-output "ecs_sg_id" {
-  description = "ECS security group ID"
+output "ecs_security_group_id" {
+  description = "ID of the ECS security group"
   value       = aws_security_group.ecs.id
 }
 
-output "rds_sg_id" {
-  description = "RDS security group ID"
+output "rds_security_group_id" {
+  description = "ID of the RDS security group"
   value       = aws_security_group.rds.id
 }
 
-output "redis_sg_id" {
-  description = "Redis security group ID"
+output "redis_security_group_id" {
+  description = "ID of the Redis security group"
   value       = aws_security_group.redis.id
 }

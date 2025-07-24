@@ -1,76 +1,25 @@
-# Dockerfile - CORRECTED VERSION
-FROM node:20-slim AS builder
+# Multi-stage build for Outline
+# Stage 1: Build dependencies and application
+FROM node:18-alpine AS builder
 
+# Set working directory
 WORKDIR /opt/outline
 
-# Copy package files
-COPY package.json yarn.lock ./
-
-# Install dependencies including dev dependencies for build
-RUN yarn install --frozen-lockfile
-
-# Copy source code (need all source files)
-COPY . .
-
-# Build the application
-RUN yarn build
-
-# Production stage  
-FROM node:20-slim AS runner
-
-LABEL org.opencontainers.image.source="https://github.com/outline/outline"
-
-ARG APP_PATH=/opt/outline
-WORKDIR $APP_PATH
-
-ENV NODE_ENV=production
-
-# Install system dependencies
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends \
-        wget \
-        ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
-
-# Copy built application from builder stage
-COPY --from=builder $APP_PATH/build ./build
-COPY --from=builder $APP_PATH/server ./server
-COPY --from=builder $APP_PATH/public ./public
-COPY --from=builder $APP_PATH/.sequelizerc ./.sequelizerc
-COPY --from=builder $APP_PATH/package.json ./package.json
-COPY --from=builder $APP_PATH/node_modules ./node_modules
-
-# Create a non-root user
-RUN groupadd --gid 1001 nodejs \
-    && useradd --uid 1001 --gid nodejs nodejs \
-    && mkdir -p /var/lib/outline/data \
-    && chown -R nodejs:nodejs $APP_PATH \
-    && chown -R nodejs:nodejs /var/lib/outline
-
-# Switch to non-root user
-USER nodejs
-
-# Expose port
-EXPOSE 3000
-
-# Health check
-HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
-    CMD wget --no-verbose --tries=1 --spider http://localhost:3000/ || exit 1
-
-# Start the application  
-CMD ["yarn", "start"]# Dockerfile
-# Multi-stage build for production optimization
-
-# Build stage
-FROM node:20-slim AS builder
-
-WORKDIR /opt/outline
+# Install build dependencies
+RUN apk add --no-cache \
+    python3 \
+    make \
+    g++ \
+    libc6-compat \
+    vips-dev \
+    git
 
 # Copy package files
-COPY package.json yarn.lock ./
+COPY package*.json ./
+COPY yarn.lock ./
 
 # Install dependencies
-RUN yarn install --frozen-lockfile --production=false
+RUN yarn install --frozen-lockfile --network-timeout 1000000
 
 # Copy source code
 COPY . .
@@ -78,52 +27,50 @@ COPY . .
 # Build the application
 RUN yarn build
 
-# Production stage
-FROM node:20-slim AS runner
+# Remove dev dependencies to reduce size
+RUN yarn install --production --frozen-lockfile && yarn cache clean
 
-LABEL org.opencontainers.image.source="https://github.com/outline/outline"
-LABEL maintainer="outline-ecs-deployment"
+# Stage 2: Runtime image
+FROM node:18-alpine AS runtime
 
-ARG APP_PATH=/opt/outline
-WORKDIR $APP_PATH
+# Install runtime dependencies
+RUN apk add --no-cache \
+    vips \
+    dumb-init \
+    curl \
+    ca-certificates
 
-ENV NODE_ENV=production
+# Create non-root user
+RUN addgroup -g 1001 -S outline && \
+    adduser -S outline -u 1001 -G outline
 
-# Install system dependencies
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends \
-        wget \
-        ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
+# Set working directory
+WORKDIR /opt/outline
 
 # Copy built application from builder stage
-COPY --from=builder $APP_PATH/build ./build
-COPY --from=builder $APP_PATH/server ./server
-COPY --from=builder $APP_PATH/public ./public
-COPY --from=builder $APP_PATH/.sequelizerc ./.sequelizerc
-COPY --from=builder $APP_PATH/package.json ./package.json
+COPY --from=builder --chown=outline:outline /opt/outline/build ./build
+COPY --from=builder --chown=outline:outline /opt/outline/server ./server
+COPY --from=builder --chown=outline:outline /opt/outline/shared ./shared
+COPY --from=builder --chown=outline:outline /opt/outline/node_modules ./node_modules
+COPY --from=builder --chown=outline:outline /opt/outline/public ./public
+COPY --from=builder --chown=outline:outline /opt/outline/package.json ./package.json
 
-# Install only production dependencies
-COPY package.json yarn.lock ./
-RUN yarn install --frozen-lockfile --production=true \
-    && yarn cache clean
-
-# Create a non-root user
-RUN groupadd --gid 1001 nodejs \
-    && useradd --uid 1001 --gid nodejs nodejs \
-    && mkdir -p /var/lib/outline/data \
-    && chown -R nodejs:nodejs $APP_PATH \
-    && chown -R nodejs:nodejs /var/lib/outline
+# Create necessary directories
+RUN mkdir -p /opt/outline/logs && \
+    chown -R outline:outline /opt/outline
 
 # Switch to non-root user
-USER nodejs
+USER outline
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
+    CMD curl -f http://localhost:${PORT:-3000}/api/auth.info || exit 1
 
 # Expose port
 EXPOSE 3000
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
-    CMD wget --no-verbose --tries=1 --spider http://localhost:3000/ || exit 1
+# Use dumb-init to handle signals properly
+ENTRYPOINT ["dumb-init", "--"]
 
 # Start the application
-CMD ["yarn", "start"]
+CMD ["node", "server/index.js"]

@@ -1,62 +1,77 @@
-# terraform/variables.tf
+# General Configuration
 variable "aws_region" {
-  description = "AWS region"
+  description = "AWS region for resources"
   type        = string
-  default     = "eu-west-2"
-}
-
-variable "aws_account_id" {
-  description = "AWS Account ID"
-  type        = string
-  default     = "475641479654"
+  default     = "us-east-1"
 }
 
 variable "project_name" {
-  description = "Project name used for resource naming"
+  description = "Name of the project"
   type        = string
   default     = "outline"
+}
+
+variable "environment" {
+  description = "Environment name"
+  type        = string
+  default     = "prod"
 }
 
 variable "domain_name" {
   description = "Domain name for the application"
   type        = string
-  default     = "tm.integratepro.online"
 }
 
-variable "route53_zone_id" {
-  description = "Route53 hosted zone ID for the domain"
-  type        = string
-  default     = ""
-}
-
+# Network Configuration
 variable "vpc_cidr" {
   description = "CIDR block for VPC"
   type        = string
   default     = "10.0.0.0/16"
 }
 
-variable "public_subnets" {
-  description = "Public subnet CIDR blocks"
-  type        = list(string)
-  default     = ["10.0.1.0/24", "10.0.2.0/24"]
-}
-
-variable "private_subnets" {
-  description = "Private subnet CIDR blocks"
-  type        = list(string)
-  default     = ["10.0.10.0/24", "10.0.20.0/24"]
-}
-
-variable "container_cpu" {
-  description = "CPU units for the container"
+variable "az_count" {
+  description = "Number of availability zones to use"
   type        = number
-  default     = 256
+  default     = 2
 }
 
-variable "container_memory" {
-  description = "Memory for the container"
+# Database Configuration
+variable "db_instance_class" {
+  description = "RDS instance class"
+  type        = string
+  default     = "db.t3.micro"
+}
+
+variable "db_name" {
+  description = "Database name"
+  type        = string
+  default     = "outline"
+}
+
+variable "db_username" {
+  description = "Database username"
+  type        = string
+  default     = "outline"
+}
+
+# Redis Configuration
+variable "redis_node_type" {
+  description = "ElastiCache Redis node type"
+  type        = string
+  default     = "cache.t3.micro"
+}
+
+# ECS Configuration
+variable "outline_image" {
+  description = "Docker image for Outline application"
+  type        = string
+  default     = "outlinewiki/outline:latest"
+}
+
+variable "outline_port" {
+  description = "Port for Outline application"
   type        = number
-  default     = 512
+  default     = 3000
 }
 
 variable "desired_count" {
@@ -65,14 +80,27 @@ variable "desired_count" {
   default     = 1
 }
 
-variable "db_instance_class" {
-  description = "RDS instance class"
-  type        = string
-  default     = "db.t4g.micro"
+variable "cpu" {
+  description = "CPU units for ECS task"
+  type        = number
+  default     = 512
 }
 
-variable "cache_node_type" {
-  description = "ElastiCache node type"
+variable "memory" {
+  description = "Memory for ECS task"
+  type        = number
+  default     = 1024
+}
+
+# Application Secrets
+variable "secret_key" {
+  description = "Secret key for Outline application"
   type        = string
-  default     = "cache.t4g.micro"
+  sensitive   = true
+}
+
+variable "utils_secret" {
+  description = "Utils secret for Outline application"
+  type        = string
+  sensitive   = true
 }

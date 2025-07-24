@@ -1,82 +1,83 @@
-variable "cluster_name" {
-  description = "Name of the ECS cluster"
-  type        = string
-}
-
-variable "service_name" {
-  description = "Name of the ECS service"
+variable "name_prefix" {
+  description = "Name prefix for resources"
   type        = string
 }
 
 variable "vpc_id" {
-  description = "VPC ID"
+  description = "ID of the VPC"
   type        = string
 }
 
-variable "subnets" {
-  description = "Subnet IDs"
+variable "private_subnet_ids" {
+  description = "IDs of the private subnets"
   type        = list(string)
 }
 
-variable "security_group_ids" {
-  description = "Security group IDs"
-  type        = list(string)
-}
-
-variable "container_image" {
-  description = "Docker image to run in the ECS cluster"
+variable "security_group_id" {
+  description = "ID of the security group for ECS"
   type        = string
-}
-
-variable "container_port" {
-  description = "Port exposed by the docker image to redirect traffic to"
-  type        = number
-  default     = 3000
-}
-
-variable "container_cpu" {
-  description = "Fargate instance CPU units to provision (1 vCPU = 1024 CPU units)"
-  type        = number
-  default     = 256
-}
-
-variable "container_memory" {
-  description = "Fargate instance memory to provision (in MiB)"
-  type        = number
-  default     = 512
-}
-
-variable "desired_count" {
-  description = "Number of docker containers to run"
-  type        = number
-  default     = 1
 }
 
 variable "target_group_arn" {
-  description = "ARN of the Load Balancer target group to associate with the service"
+  description = "ARN of the target group"
   type        = string
 }
 
-variable "environment_variables" {
-  description = "The environment variables to pass to the container"
-  type = list(object({
-    name  = string
-    value = string
-  }))
-  default = []
+variable "database_url" {
+  description = "Database connection URL"
+  type        = string
+  sensitive   = true
 }
 
-variable "secrets" {
-  description = "The secrets to pass to the container"
-  type = list(object({
-    name      = string
-    valueFrom = string
-  }))
-  default = []
+variable "redis_url" {
+  description = "Redis connection URL"
+  type        = string
 }
 
-variable "log_retention_in_days" {
-  description = "Specifies the number of days you want to retain log events"
+variable "outline_image" {
+  description = "Docker image for Outline application"
+  type        = string
+}
+
+variable "outline_port" {
+  description = "Port for Outline application"
   type        = number
-  default     = 7
+}
+
+variable "desired_count" {
+  description = "Desired number of ECS tasks"
+  type        = number
+}
+
+variable "cpu" {
+  description = "CPU units for ECS task"
+  type        = number
+}
+
+variable "memory" {
+  description = "Memory for ECS task"
+  type        = number
+}
+
+variable "secret_key" {
+  description = "Secret key for Outline application"
+  type        = string
+  sensitive   = true
+}
+
+variable "utils_secret" {
+  description = "Utils secret for Outline application"
+  type        = string
+  sensitive   = true
+}
+
+variable "domain_name" {
+  description = "Domain name for the application"
+  type        = string
+}
+
+variable "tags" {
+  description = "A map of tags to assign to the resource"
+  type        = map(string)
+  default     = {}
 }

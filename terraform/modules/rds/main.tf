@@ -1,73 +1,99 @@
-# terraform/modules/rds/main.tf
+# Generate random password for database
+resource "random_password" "db_password" {
+  length  = 16
+  special = true
+}
 
+# Store database password in SSM Parameter Store
+resource "aws_ssm_parameter" "db_password" {
+  name  = "/${var.name_prefix}/database/password"
+  type  = "SecureString"
+  value = random_password.db_password.result
+
+  tags = merge(var.tags, {
+    Name = "${var.name_prefix}-db-password"
+  })
+}
+
+# DB Subnet Group
 resource "aws_db_subnet_group" "main" {
-  name       = "${var.identifier}-subnet-group"
-  subnet_ids = var.subnet_ids
+  name       = "${var.name_prefix}-db-subnet-group"
+  subnet_ids = var.private_subnet_ids
 
-  tags = {
-    Name = "${var.identifier} DB subnet group"
-  }
+  tags = merge(var.tags, {
+    Name = "${var.name_prefix}-db-subnet-group"
+  })
 }
 
-resource "aws_db_parameter_group" "main" {
-  family = "postgres15"
-  name   = "${var.identifier}-params"
-
-  parameter {
-    name  = "log_connections"
-    value = "1"
-  }
-
-  parameter {
-    name  = "log_statement"
-    value = "all"
-  }
-
-  tags = {
-    Name = "${var.identifier} DB parameter group"
-  }
-}
-
+# RDS Instance
 resource "aws_db_instance" "main" {
-  identifier = var.identifier
+  identifier = "${var.name_prefix}-db"
 
+  # Engine options
   engine         = "postgres"
-  engine_version = var.engine_version
-  instance_class = var.instance_class
+  engine_version = "15.4"
+  instance_class = var.db_instance_class
 
-  allocated_storage     = var.allocated_storage
-  max_allocated_storage = var.max_allocated_storage
-  storage_type          = var.storage_type
-  storage_encrypted     = var.storage_encrypted
+  # Database configuration
+  allocated_storage     = 20
+  max_allocated_storage = 100
+  storage_type          = "gp2"
+  storage_encrypted     = true
 
-  db_name  = var.database_name
-  username = var.database_username
-  password = var.database_password
+  # Database settings
+  db_name  = var.db_name
+  username = var.db_username
+  password = random_password.db_password.result
 
-  vpc_security_group_ids = var.security_group_ids
+  # Network settings
   db_subnet_group_name   = aws_db_subnet_group.main.name
-  parameter_group_name   = aws_db_parameter_group.main.name
+  vpc_security_group_ids = [var.security_group_id]
+  publicly_accessible    = false
+  port                   = 5432
 
-  backup_retention_period = var.backup_retention_period
-  backup_window          = var.backup_window
-  maintenance_window     = var.maintenance_window
+  # Backup settings
+  backup_retention_period = 7
+  backup_window          = "03:00-04:00"
+  maintenance_window     = "sun:04:00-sun:05:00"
 
-  skip_final_snapshot       = var.skip_final_snapshot
-  final_snapshot_identifier = var.skip_final_snapshot ? null : "${var.identifier}-final-snapshot-${formatdate("YYYY-MM-DD-hhmm", timestamp())}"
+  # Monitoring
+  monitoring_interval = 60
+  monitoring_role_arn = aws_iam_role.rds_enhanced_monitoring.arn
 
-  deletion_protection = var.deletion_protection
+  # Performance insights
+  performance_insights_enabled = true
 
-  performance_insights_enabled = var.performance_insights_enabled
-  monitoring_interval         = var.monitoring_interval
+  # Deletion protection
+  deletion_protection      = false
+  delete_automated_backups = true
+  skip_final_snapshot      = true
 
-  tags = {
-    Name = var.identifier
-  }
+  tags = merge(var.tags, {
+    Name = "${var.name_prefix}-db"
+  })
+}
 
-  lifecycle {
-    ignore_changes = [
-      final_snapshot_identifier,
-      password,
+# IAM role for RDS enhanced monitoring
+resource "aws_iam_role" "rds_enhanced_monitoring" {
+  name = "${var.name_prefix}-rds-monitoring"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Action = "sts:AssumeRole"
+        Effect = "Allow"
+        Principal = {
+          Service = "monitoring.rds.amazonaws.com"
+        }
+      }
     ]
-  }
+  })
+
+  tags = var.tags
+}
+
+resource "aws_iam_role_policy_attachment" "rds_enhanced_monitoring" {
+  role       = aws_iam_role.rds_enhanced_monitoring.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonRDSEnhancedMonitoringRole"
 }

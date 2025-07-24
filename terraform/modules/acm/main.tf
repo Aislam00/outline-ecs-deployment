@@ -1,42 +1,54 @@
-# terraform/modules/acm/main.tf
-
+# ACM Certificate
 resource "aws_acm_certificate" "main" {
   domain_name       = var.domain_name
   validation_method = "DNS"
 
+  subject_alternative_names = [
+    "*.${var.domain_name}"
+  ]
+
+  tags = merge(var.tags, {
+    Name = "${var.domain_name}-cert"
+  })
+
   lifecycle {
     create_before_destroy = true
   }
-
-  tags = {
-    Name = var.domain_name
-    Email = var.email
-  }
 }
 
-# Note: Since using external DNS (GoDaddy), we cannot auto-validate
-# You'll need to manually add the DNS validation records to GoDaddy
+# Route53 validation records (if you're using Route53)
+data "aws_route53_zone" "main" {
+  count = var.create_route53_records ? 1 : 0
+  
+  name         = var.domain_name
+  private_zone = false
+}
 
-output "certificate_validation_options" {
-  description = "Certificate validation options for manual DNS setup"
-  value = {
+resource "aws_route53_record" "validation" {
+  for_each = var.create_route53_records ? {
     for dvo in aws_acm_certificate.main.domain_validation_options : dvo.domain_name => {
       name   = dvo.resource_record_name
       record = dvo.resource_record_value
       type   = dvo.resource_record_type
     }
-  }
+  } : {}
+
+  allow_overwrite = true
+  name            = each.value.name
+  records         = [each.value.record]
+  ttl             = 60
+  type            = each.value.type
+  zone_id         = data.aws_route53_zone.main[0].zone_id
 }
 
-# For GoDaddy DNS, we'll wait manually or use a timer
-resource "time_sleep" "wait_for_certificate" {
-  depends_on = [aws_acm_certificate.main]
+# Certificate validation
+resource "aws_acm_certificate_validation" "main" {
+  count = var.create_route53_records ? 1 : 0
   
-  create_duration = "30s"
-}
+  certificate_arn         = aws_acm_certificate.main.arn
+  validation_record_fqdns = [for record in aws_route53_record.validation : record.fqdn]
 
-# We'll assume certificate is validated (since we can't auto-validate with GoDaddy)
-# In production, you would manually add the DNS records and then this would work
-locals {
-  certificate_arn = aws_acm_certificate.main.arn
+  timeouts {
+    create = "5m"
+  }
 }

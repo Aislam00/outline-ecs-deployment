@@ -1,15 +1,110 @@
+version: '3.8'
+
 services:
-  redis:
-    image: redis
+  # Outline application
+  outline:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: outline:latest
+    container_name: outline-app
+    restart: unless-stopped
     ports:
-      - "127.0.0.1:6379:6379"
-    user: "redis:redis"
-  postgres:
-    image: postgres
-    ports:
-      - "127.0.0.1:5432:5432"
+      - "3000:3000"
     environment:
-      POSTGRES_USER: user
-      POSTGRES_PASSWORD: pass
-      POSTGRES_DB: outline
-    user: "postgres:postgres"
+      - NODE_ENV=production
+      - PORT=3000
+      - URL=https://your-domain.com
+      - DATABASE_URL=postgres://outline:password@postgres:5432/outline
+      - REDIS_URL=redis://redis:6379
+      - SECRET_KEY=your-secret-key-generate-a-long-random-string
+      - UTILS_SECRET=your-utils-secret-generate-another-long-random-string
+      - AWS_REGION=us-east-1
+      - AWS_S3_UPLOAD_BUCKET_URL=https://s3.amazonaws.com
+      - AWS_S3_UPLOAD_BUCKET_NAME=your-s3-bucket-name
+      - AWS_S3_FORCE_PATH_STYLE=false
+      - AWS_S3_ACL=private
+      - FORCE_HTTPS=true
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - outline-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/auth.info"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # PostgreSQL database
+  postgres:
+    image: postgres:15-alpine
+    container_name: outline-postgres
+    restart: unless-stopped
+    environment:
+      - POSTGRES_DB=outline
+      - POSTGRES_USER=outline
+      - POSTGRES_PASSWORD=password
+      - POSTGRES_INITDB_ARGS=--encoding=UTF-8 --lc-collate=C --lc-ctype=C
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./scripts/init-db.sh:/docker-entrypoint-initdb.d/init-db.sh:ro
+    ports:
+      - "5432:5432"
+    networks:
+      - outline-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U outline -d outline"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis cache
+  redis:
+    image: redis:7-alpine
+    container_name: outline-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    networks:
+      - outline-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # HTTPS proxy (for local development)
+  nginx:
+    image: nginx:alpine
+    container_name: outline-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+    depends_on:
+      - outline
+    networks:
+      - outline-network
+    profiles:
+      - dev
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+
+networks:
+  outline-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16

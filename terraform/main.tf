@@ -5,204 +5,136 @@ terraform {
       source  = "hashicorp/aws"
       version = "~> 5.0"
     }
-    random = {
-      source  = "hashicorp/random"
-      version = "~> 3.0"
-    }
   }
 }
 
 provider "aws" {
   region = var.aws_region
-
-  default_tags {
-    tags = {
-      Project     = "outline-ecs"
-      Environment = "production"
-      ManagedBy   = "terraform"
-    }
-  }
 }
 
-# ───── Data Sources ─────
+# Data sources
 data "aws_availability_zones" "available" {
   state = "available"
 }
 
 data "aws_caller_identity" "current" {}
 
-# ───── Secrets (Random Generators) ─────
-resource "random_password" "db_password" {
-  length  = 32
-  special = true
+# Local values
+locals {
+  name_prefix = "${var.project_name}-${var.environment}"
+  common_tags = {
+    Project     = var.project_name
+    Environment = var.environment
+    ManagedBy   = "terraform"
+  }
 }
 
-resource "random_id" "secret_key" {
-  byte_length = 32
-}
-
-resource "random_id" "utils_secret" {
-  byte_length = 32
-}
-
-# ───── SSM Parameters ─────
-resource "aws_ssm_parameter" "db_password" {
-  name  = "/outline/database/password"
-  type  = "SecureString"
-  value = random_password.db_password.result
-}
-
-resource "aws_ssm_parameter" "secret_key" {
-  name  = "/outline/secret_key"
-  type  = "SecureString"
-  value = random_id.secret_key.hex
-}
-
-resource "aws_ssm_parameter" "utils_secret" {
-  name  = "/outline/utils_secret"
-  type  = "SecureString"
-  value = random_id.utils_secret.hex
-}
-
-# ───── VPC Module ─────
+# VPC Module
 module "vpc" {
   source = "./modules/vpc"
-
-  name               = var.project_name
-  cidr               = var.vpc_cidr
-  azs                = slice(data.aws_availability_zones.available.names, 0, 2)
-  private_subnets    = var.private_subnets
-  public_subnets     = var.public_subnets
-  enable_nat_gateway = true
-  enable_vpn_gateway = false
-  enable_dns_support = true
-  enable_dns_hostnames = true
+  
+  name_prefix         = local.name_prefix
+  vpc_cidr           = var.vpc_cidr
+  availability_zones = slice(data.aws_availability_zones.available.names, 0, var.az_count)
+  
+  tags = local.common_tags
 }
 
-# ───── Security Groups Module ─────
+# Security Groups Module
 module "security_groups" {
-  source       = "./modules/security-groups"
-  vpc_id       = module.vpc.vpc_id
-  project_name = var.project_name
+  source = "./modules/security-groups"
+  
+  name_prefix = local.name_prefix
+  vpc_id      = module.vpc.vpc_id
+  
+  tags = local.common_tags
 }
 
-# ───── RDS Module ─────
-module "rds" {
-  source            = "./modules/rds"
-  identifier        = "${var.project_name}-db"
-  engine_version    = "15.7"
-  instance_class    = var.db_instance_class
-  allocated_storage = 20
-
-  database_name     = "outline"
-  database_username = "outline"
-  database_password = random_password.db_password.result
-
-  vpc_id            = module.vpc.vpc_id
-  subnet_ids        = module.vpc.private_subnets
-  security_group_ids = [module.security_groups.rds_sg_id]
-
-  backup_retention_period = 1
-  backup_window           = "03:00-04:00"
-  maintenance_window      = "sun:04:00-sun:05:00"
-  skip_final_snapshot     = true
-  deletion_protection     = false
-}
-
-# ───── ElastiCache Module ─────
-module "elasticache" {
-  source            = "./modules/elasticache"
-  cluster_id        = "${var.project_name}-redis"
-  node_type         = var.cache_node_type
-  num_cache_nodes   = 1
-
-  subnet_ids         = module.vpc.private_subnets
-  security_group_ids = [module.security_groups.redis_sg_id]
-}
-
-# ───── ACM Module ─────
+# ACM Certificate Module
 module "acm" {
-  source       = "./modules/acm"
-  domain_name  = var.domain_name
-  zone_id      = var.route53_zone_id
-  email        = "islamadam436@gmail.com"
+  source = "./modules/acm"
+  
+  domain_name = var.domain_name
+  
+  tags = local.common_tags
 }
 
-# ───── ALB Module ─────
+# Application Load Balancer Module
 module "alb" {
-  source             = "./modules/alb"
-  name               = "${var.project_name}-alb"
-  vpc_id             = module.vpc.vpc_id
-  subnets            = module.vpc.public_subnets
-  security_group_ids = [module.security_groups.alb_sg_id]
-  certificate_arn    = module.acm.certificate_arn
-  domain_name        = var.domain_name
+  source = "./modules/alb"
+  
+  name_prefix        = local.name_prefix
+  vpc_id            = module.vpc.vpc_id
+  public_subnet_ids = module.vpc.public_subnet_ids
+  security_group_id = module.security_groups.alb_security_group_id
+  certificate_arn   = module.acm.certificate_arn
+  
+  tags = local.common_tags
 }
 
-# ───── ECS Module ─────
+# RDS Module
+module "rds" {
+  source = "./modules/rds"
+  
+  name_prefix         = local.name_prefix
+  vpc_id             = module.vpc.vpc_id
+  private_subnet_ids = module.vpc.private_subnet_ids
+  security_group_id  = module.security_groups.rds_security_group_id
+  
+  db_instance_class = var.db_instance_class
+  db_name          = var.db_name
+  db_username      = var.db_username
+  
+  tags = local.common_tags
+}
+
+# ElastiCache (Redis) Module
+module "elasticache" {
+  source = "./modules/elasticache"
+  
+  name_prefix         = local.name_prefix
+  vpc_id             = module.vpc.vpc_id
+  private_subnet_ids = module.vpc.private_subnet_ids
+  security_group_id  = module.security_groups.redis_security_group_id
+  
+  node_type = var.redis_node_type
+  
+  tags = local.common_tags
+}
+
+# ECS Module
 module "ecs" {
-  source              = "./modules/ecs"
-  cluster_name        = "${var.project_name}-cluster"
-  service_name        = "${var.project_name}-service"
-
-  vpc_id              = module.vpc.vpc_id
-  subnets             = module.vpc.private_subnets
-  security_group_ids  = [module.security_groups.ecs_sg_id]
-
-  container_image     = "${var.aws_account_id}.dkr.ecr.${var.aws_region}.amazonaws.com/outline-app:latest"
-  container_port      = 3000
-  container_cpu       = var.container_cpu
-  container_memory    = var.container_memory
-  desired_count       = var.desired_count
-  target_group_arn    = module.alb.target_group_arn
-
-  environment_variables = [
-    {
-      name  = "NODE_ENV"
-      value = "production"
-    },
-    {
-      name  = "URL"
-      value = "https://${var.domain_name}"
-    },
-    {
-      name  = "PORT"
-      value = "3000"
-    },
-    {
-      name  = "DATABASE_URL"
-      value = "postgresql://${module.rds.db_username}:${random_password.db_password.result}@${module.rds.db_endpoint}:${module.rds.db_port}/${module.rds.db_name}"
-    },
-    {
-      name  = "REDIS_URL"
-      value = "redis://${module.elasticache.primary_endpoint}:6379/0"
-    },
-    {
-      name  = "FILE_STORAGE"
-      value = "local"
-    },
-    {
-      name  = "FILE_STORAGE_LOCAL_ROOT_DIR"
-      value = "/var/lib/outline/data"
-    },
-    {
-      name  = "FORCE_HTTPS"
-      value = "true"
-    },
-    {
-      name  = "ENFORCE_HTTPS"
-      value = "true"
-    }
-  ]
-
-  secrets = [
-    {
-      name      = "SECRET_KEY"
-      valueFrom = aws_ssm_parameter.secret_key.arn
-    },
-    {
-      name      = "UTILS_SECRET"
-      valueFrom = aws_ssm_parameter.utils_secret.arn
-    }
+  source = "./modules/ecs"
+  
+  name_prefix         = local.name_prefix
+  vpc_id             = module.vpc.vpc_id
+  private_subnet_ids = module.vpc.private_subnet_ids
+  security_group_id  = module.security_groups.ecs_security_group_id
+  
+  # Load balancer
+  target_group_arn = module.alb.target_group_arn
+  
+  # Database
+  database_url = "postgres://${var.db_username}:${module.rds.db_password}@${module.rds.db_endpoint}/${var.db_name}"
+  redis_url    = "redis://${module.elasticache.redis_endpoint}:6379"
+  
+  # Application settings
+  outline_image    = var.outline_image
+  outline_port     = var.outline_port
+  desired_count    = var.desired_count
+  cpu             = var.cpu
+  memory          = var.memory
+  
+  # Environment variables
+  secret_key      = var.secret_key
+  utils_secret    = var.utils_secret
+  domain_name     = var.domain_name
+  
+  tags = local.common_tags
+  
+  depends_on = [
+    module.rds,
+    module.elasticache,
+    module.alb
   ]
 }

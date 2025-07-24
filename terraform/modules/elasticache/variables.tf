@@ -1,39 +1,31 @@
-# terraform/modules/elasticache/variables.tf
-variable "cluster_id" {
-  description = "Group identifier for the cache cluster"
+variable "name_prefix" {
+  description = "Name prefix for resources"
   type        = string
 }
 
-variable "engine" {
-  description = "Name of the cache engine to be used for this cache cluster"
+variable "vpc_id" {
+  description = "ID of the VPC"
   type        = string
-  default     = "redis"
+}
+
+variable "private_subnet_ids" {
+  description = "IDs of the private subnets"
+  type        = list(string)
+}
+
+variable "security_group_id" {
+  description = "ID of the security group for Redis"
+  type        = string
 }
 
 variable "node_type" {
-  description = "The instance class used for the cache cluster"
+  description = "Node type for Redis cluster"
   type        = string
-  default     = "cache.t4g.micro"
+  default     = "cache.t3.micro"
 }
 
-variable "num_cache_nodes" {
-  description = "The number of cache nodes that the cache cluster should have"
-  type        = number
-  default     = 1
-}
-
-variable "port" {
-  description = "The port number on which each of the cache nodes will accept connections"
-  type        = number
-  default     = 6379
-}
-
-variable "subnet_ids" {
-  description = "List of VPC Subnet IDs for the cache subnet group"
-  type        = list(string)
-}
-
-variable "security_group_ids" {
-  description = "List of security group IDs to associate with this cache cluster"
-  type        = list(string)
+variable "tags" {
+  description = "A map of tags to assign to the resource"
+  type        = map(string)
+  default     = {}
 }
